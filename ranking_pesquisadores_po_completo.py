@@ -107,6 +107,13 @@ AREAS_CNPQ_PLAUSIVEIS = (
 # bolsa quando a instituição não confere (evita atribuir a bolsa de um
 # homônimo). Só a instituição compatível desempata.
 LIMITE_SOBRENOME_COMUM = 20
+# Unidades de universidades que o Scopus costuma registrar sem o nome da
+# universidade (ex.: "Instituto COPPEAD de Administração" é da UFRJ). Chave =
+# sigla do CNPq; valor = palavras que, no nome da afiliação do Scopus, indicam
+# essa instituição. Acrescente outras unidades conforme necessário.
+ALIASES_INSTITUICAO = {
+    "UFRJ": ("COPPEAD", "COPPE"),
+}
 REFRESH_DIAS = 30       # reconsulta a API se o cache tiver mais de N dias
 FRACAO_MINIMA_PO = 1 / 3   # mínimo de documentos do perfil que devem ser de PO
 ANOS_JANELA_PO = 7      # exige ao menos 1 documento de PO nos últimos N anos (None = sem esse filtro)
@@ -510,6 +517,27 @@ def afiliacao_mais_recente(docs, auid):
     return data, (brasileiras[0] if brasileiras else None)
 
 
+def instituicoes_brasileiras_do_autor(docs, auid, limite=8):
+    """
+    Nomes das instituições brasileiras do autor nos documentos do perfil, da
+    mais recente para a mais antiga e sem repetição. Servem para casar a
+    instituição com a sigla do CNPq quando a afiliação mais recente é uma
+    unidade (ex.: COPPEAD) e as anteriores trazem a universidade.
+    """
+    registros = []
+    for d in docs:
+        data = getattr(d, "coverDate", None) or ""
+        for _, aid, inst in afiliacoes_do_documento(d) or []:
+            if aid == auid and inst:
+                registros.append((data, inst))
+    vistos, resultado = set(), []
+    for _, inst in sorted(registros, key=lambda r: r[0], reverse=True):
+        if inst not in vistos:
+            vistos.add(inst)
+            resultado.append(inst)
+    return resultado[:limite]
+
+
 def coletar_documentos():
     """
     Roda as buscas por tema e acumula dados por autor brasileiro.
@@ -694,8 +722,14 @@ def sigla_compativel(sigla, universidade):
     Sergipe, mas não com ... de Santa Catarina nem ... de São Carlos; UFC não
     é compatível com ... de Campina Grande. A ordem das palavras não importa,
     para cobrir nomes em inglês ("Federal University of Technology - Paraná").
-    Serve só para desempatar homônimos e validar correspondências.
+    Nomes de unidades listados em ALIASES_INSTITUICAO (ex.: COPPEAD ~ UFRJ)
+    também são aceitos. Serve só para desempatar homônimos e validar
+    correspondências.
     """
+    nome_norm = normalizar_texto(universidade)
+    for alias in ALIASES_INSTITUICAO.get(str(sigla).strip().upper(), ()):
+        if re.search(r"(?<!\w)" + re.escape(normalizar_texto(alias)) + r"(?!\w)", nome_norm):
+            return True
     s = re.sub(r"[^a-z0-9]", "", normalizar_texto(sigla))
     palavras = [
         p for p in re.findall(r"[a-z0-9]+", normalizar_texto(universidade))
@@ -831,6 +865,10 @@ def bolsa_cnpq(nome_pesquisador, universidade, bolsistas, ref=None, diagnostico=
     descritos na lista 'diagnostico', se fornecida.
     """
     ref = ref or date.today()
+    # 'universidade' pode ser um nome ou uma lista (a atual primeiro, depois as
+    # demais instituições brasileiras que o autor usou nos documentos do perfil)
+    universidades = [universidade] if isinstance(universidade, str) else [u for u in universidade if u]
+    universidade_ref = universidades[0] if universidades else ""
     tq = tokens_nome(nome_pesquisador)
     if not tq:
         return None
@@ -851,7 +889,7 @@ def bolsa_cnpq(nome_pesquisador, universidade, bolsistas, ref=None, diagnostico=
         return None
 
     def inst_ok(p):
-        return sigla_compativel(p["inst"], universidade)
+        return any(sigla_compativel(p["inst"], u) for u in universidades)
 
     if len(pessoas) > 1:
         compativeis = [p for p in pessoas if inst_ok(p)]
@@ -866,19 +904,28 @@ def bolsa_cnpq(nome_pesquisador, universidade, bolsistas, ref=None, diagnostico=
                 )
             return None
         else:
-            insts = sorted({p["inst"] for p in pessoas})
+            # lista só os da mesma instituição quando vários combinam com ela
+            ambiguos = compativeis if len(compativeis) > 1 else pessoas
+            insts = sorted({p["inst"] for p in ambiguos})
             lista = ", ".join(insts[:5]) + (", ..." if len(insts) > 5 else "")
-            return f"Homônimos no CNPq ({len(pessoas)}: {lista}) - verificar"
+            return f"Homônimos no CNPq ({len(ambiguos)}: {lista}) - verificar"
 
     pessoa = pessoas[0]
     ressalva = None
     if not (nivel <= 1 and len(tq) >= 3) and not inst_ok(pessoa):
+        # Sem instituição compatível, a área plausível basta apenas quando o
+        # sobrenome é incomum E o nome é específico: primeiro nome por extenso,
+        # duas ou mais iniciais/nomes antes do sobrenome (ex.: "P. F. Wanke" ~
+        # "Peter Fernandes Wanke") ou sobrenome único na base de bolsistas.
         prenome_completo = len(tq[0]) > 1
         sobrenome_raro = len(candidatos) <= LIMITE_SOBRENOME_COMUM
-        if prenome_completo and sobrenome_raro and area_plausivel(pessoa["area"]):
+        nome_especifico = (
+            prenome_completo or len(tq) - 1 >= 2 or len(candidatos) == 1
+        )
+        if sobrenome_raro and nome_especifico and area_plausivel(pessoa["area"]):
             ressalva = (
                 f"instituição divergente (CNPq: {pessoa['inst']}; Scopus: "
-                f"{universidade}), aceito pela área {pessoa['area']}"
+                f"{universidade_ref}), aceito pela área {pessoa['area']}"
             )
         else:
             if diagnostico is not None:
@@ -1018,6 +1065,7 @@ def analisar_documentos(au, eids_po, auid, data_corte=None):
         "n_po_perfil": n_po,
         "temas_locais": temas,
         "afiliacao_recente": afiliacao_mais_recente(docs, auid),
+        "instituicoes_br": instituicoes_brasileiras_do_autor(docs, auid),
         "n_po_janela": n_po_janela,
         "ultimo_po": ultimo_po or None,
         "n_excluidos_perfil": n_excluidos,
@@ -1132,8 +1180,11 @@ def consultar_perfis(candidatos, eids_po, bolsistas):
             c["universidade"] = inst_recente   # instituição atual (documento mais recente)
 
             descartados = []
+            instituicoes = [c["universidade"]] + [
+                u for u in analise["instituicoes_br"] if u != c["universidade"]
+            ]
             info_bolsa = bolsa_cnpq(
-                nome_para_cnpq(au, c["nome"]), c["universidade"],
+                nome_para_cnpq(au, c["nome"]), instituicoes,
                 bolsistas, DATA_REFERENCIA, descartados,
             )
             if isinstance(info_bolsa, dict) and info_bolsa.get("obs"):
@@ -1477,10 +1528,12 @@ def salvar_excel(aprovados):
         "o vigente na data de referência. O nome é comparado em três níveis: "
         "idêntico (sem acentos), grafia equivalente (Luis/Luiz) e aproximado "
         "(sobrenome em qualquer posição, nome do meio omitido ou abreviado). "
-        "Nome pouco específico exige sigla de instituição compatível com a "
-        "universidade do Scopus ou primeiro nome por extenso com área "
-        "plausível. Homônimos não resolvidos aparecem sinalizados. Situação "
-        "'Suspenso' = bolsa suspensa.",
+        "Nome pouco específico exige sigla de instituição compatível com "
+        "alguma das instituições brasileiras do autor no Scopus ou, havendo "
+        "sobrenome incomum, nome específico (primeiro nome por extenso, duas "
+        "iniciais ou sobrenome único na base) com área plausível. Homônimos "
+        "não resolvidos aparecem sinalizados. Situação 'Suspenso' = bolsa "
+        "suspensa.",
         "Afiliação brasileira do autor no documento mais recente do perfil "
         "(a mesma usada no filtro de afiliação atual).",
         "Fator h, depois citações totais, depois nº de artigos (decrescente), "
