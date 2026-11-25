@@ -32,10 +32,8 @@ A associação com bolsas PQ é feita após a aprovação nos filtros. O script 
 |---|---|
 | `lista_bolsistas_cnpq.py` | Consulta as páginas de resultados do CNPq e consolida os registros de bolsas PQ. |
 | `ranking_pesquisadores_po_completo.py` | Realiza as buscas na Scopus, analisa os perfis, aplica os filtros e gera o ranking. |
-| `cluster.py` | realiza a clusterização e agrupamento dos docentes. |
 | `bolsistas_pq_cnpq_todas_areas.xlsx` | Base de entrada do ranking, gerada pelo script de coleta do CNPq. |
 | `ranking_pesquisadores_po_brasil_completo.xlsx` | Resultado da seleção, com as abas `Ranking` e `Metodologia`. |
-| `clusters_data.xlsx` | Resultado da clusterização e agrupamento dos docentes. |
 
 ## Dicionário de dados
 
@@ -106,7 +104,7 @@ Execute os scripts na ordem indicada, no mesmo diretório:
 python lista_bolsistas_cnpq.py
 
 # 2. Gerar o ranking de pesquisadores em Pesquisa Operacional
-python ranking_pesquisadores_po.py
+python ranking_pesquisadores_po_completo.py
 ```
 
 O primeiro script gera `bolsistas_pq_cnpq_todas_areas.xlsx`, utilizado como entrada pelo segundo. Formate as colunas da planilha de bolsistas e esclua as linhas com dados em branco. O ranking gera `ranking_pesquisadores_po_brasil_completo.xlsx`.
