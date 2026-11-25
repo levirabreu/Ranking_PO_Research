@@ -7,7 +7,7 @@ Conjunto de scripts em Python para coletar informações de bolsas de produtivid
 O projeto possui duas etapas:
 
 1. **Coleta das bolsas PQ:** `lista_bolsistas_cnpq.py` consulta as páginas de resultados do CNPq para os códigos de áreas do conhecimento definidos no script, consolida os registros e gera `bolsistas_pq_cnpq_todas_areas.xlsx`.
-2. **Identificação e ranking:** `ranking_pesquisadores_po.py` realiza buscas temáticas na Scopus, identifica autores com afiliação brasileira, consulta os perfis dos candidatos, aplica os critérios de elegibilidade e gera `ranking_pesquisadores_po_brasil_completo.xlsx`.
+2. **Identificação e ranking:** `ranking_pesquisadores_po_completo.py` realiza buscas temáticas na Scopus, identifica autores com afiliação brasileira, consulta os perfis dos candidatos, aplica os critérios de elegibilidade e gera `ranking_pesquisadores_po_brasil_completo.xlsx`.
 
 ## Critérios de seleção
 
